@@ -2,6 +2,7 @@
 #include <map>
 #include <string>
 #include <fstream>
+#include <sstream>
 
 using namespace std;
 
@@ -24,12 +25,15 @@ public:
 
     friend ostream& operator<<(ostream& os, const Student& student);
     friend istream& operator>>(istream& is, Student& student);
+
+    void setID(long id) { student_id = id; }
+    void setAttendance(int count) { attendance_count = count; }
 };
 
-long Student::next_student_id = 0;
+long Student::next_student_id = 1; // Start IDs from 1
 
 Student::Student(string name) {
-    student_id = ++next_student_id;
+    student_id = next_student_id++;
     this->name = name;
     attendance_count = 0;
 }
@@ -39,15 +43,21 @@ void Student::markAttendance() {
 }
 
 ostream& operator<<(ostream& os, const Student& student) {
-    os << student.student_id << " " << student.name << " " << student.attendance_count;
+    os << student.student_id << "," << student.name << "," << student.attendance_count;
     return os;
 }
 
 istream& operator>>(istream& is, Student& student) {
-    is >> student.student_id;
-    is.ignore();
-    getline(is, student.name);
-    is >> student.attendance_count;
+    string id_str, attendance_str;
+    if (!getline(is, id_str, ',') || !getline(is, student.name, ',') || !getline(is, attendance_str)) {
+        return is;
+    }
+    try {
+        student.student_id = stol(id_str);
+        student.attendance_count = stoi(attendance_str);
+    } catch (exception& e) {
+        cerr << "Error parsing student data: " << e.what() << endl;
+    }
     return is;
 }
 
@@ -70,51 +80,87 @@ AttendanceSystem::AttendanceSystem() {
     loadFromFile();
 }
 
-void AttendanceSystem::loadFromFile() {
-    ifstream file("students.txt");
-    if (file.is_open()) {
-        students.clear();
-        Student student;
-        while (file >> student) {
-            students[student.getID()] = student;
-            if (student.getID() > Student::next_student_id) {
-                Student::next_student_id = student.getID();
-            }
-        }
-        file.close();
+void AttendanceSystem::saveToFile() {
+    ofstream file("data.txt", ios::trunc);
+    if (!file.is_open()) {
+        cerr << "Error: Unable to open data.txt for writing!" << endl;
+        return;
     }
+
+    for (const auto& s : students) {
+        file << s.second.getID() << "," << s.second.getName() << "," << s.second.getAttendance() << endl;
+    }
+
+    file.flush();
+    file.close();
+    cout << "✅ Data successfully saved to data.txt" << endl;
 }
 
-void AttendanceSystem::saveToFile() {
-    ofstream file("students.txt");
-    if (file.is_open()) {
-        for (const auto& s : students) {
-            file << s.second << endl;
-        }
-        file.close();
+void AttendanceSystem::loadFromFile() {
+    ifstream file("data.txt");
+
+    if (!file.is_open()) {
+        cout << "Warning: No existing data file found. A new one will be created." << endl;
+        return;
     }
+
+    students.clear();
+    string line;
+    while (getline(file, line)) {
+        stringstream ss(line);
+        long id;
+        string name;
+        int attendance;
+
+        string id_str, attendance_str;
+        if (!getline(ss, id_str, ',') || !getline(ss, name, ',') || !getline(ss, attendance_str)) {
+            cerr << "Warning: Skipping corrupt data: " << line << endl;
+            continue;
+        }
+
+        try {
+            id = stol(id_str);
+            attendance = stoi(attendance_str);
+        } catch (exception& e) {
+            cerr << "Error parsing data: " << line << endl;
+            continue;
+        }
+
+        students[id] = Student(name);
+        students[id].setID(id);
+        students[id].setAttendance(attendance);
+
+        if (id >= Student::next_student_id) {
+            Student::next_student_id = id + 1;
+        }
+    }
+
+    file.close();
+    cout << "✅ Data successfully loaded from data.txt" << endl;
 }
 
 void AttendanceSystem::addStudent(string name) {
     Student student(name);
     students[student.getID()] = student;
     saveToFile();
-    cout << "Student Added! ID: " << student.getID() << endl;
+    cout << "✅ Student Added! ID: " << student.getID() << endl;
 }
 
 void AttendanceSystem::markAttendance(long id) {
     if (students.find(id) != students.end()) {
         students[id].markAttendance();
         saveToFile();
-        cout << "Attendance marked for student ID: " << id << endl;
+        cout << "✅ Attendance marked for Student ID: " << id << endl;
     } else {
-        cout << "Student not found!" << endl;
+        cout << "❌ Student not found!" << endl;
     }
 }
 
 void AttendanceSystem::showStudents() {
+    cout << "\n=== All Students ===\n";
     for (const auto& s : students) {
-        cout << s.second << endl;
+        cout << "ID: " << s.second.getID() << ", Name: " << s.second.getName()
+             << ", Attendance: " << s.second.getAttendance() << endl;
     }
 }
 
@@ -122,14 +168,15 @@ Student AttendanceSystem::searchStudent(long id) {
     if (students.find(id) != students.end()) {
         return students[id];
     } else {
-        throw runtime_error("Student not found!");
+        throw runtime_error("❌ Student not found!");
     }
 }
 
 void AttendanceSystem::generateReport() {
-    cout << "*** Attendance Report ***" << endl;
+    cout << "\n=== Attendance Report ===\n";
     for (const auto& s : students) {
-        cout << s.second << endl;
+        cout << "ID: " << s.second.getID() << ", Name: " << s.second.getName()
+             << ", Attendance: " << s.second.getAttendance() << endl;
     }
 }
 
@@ -142,11 +189,11 @@ int main() {
     do {
         cout << "\n1. Add Student\n2. Search Student\n3. Mark Attendance\n4. Show All Students\n5. Attendance Report\n6. Exit\nEnter your choice: ";
         cin >> choice;
+        cin.ignore();
 
         switch (choice) {
             case 1:
                 cout << "Enter Student Name: ";
-                cin.ignore();
                 getline(cin, name);
                 system.addStudent(name);
                 break;
@@ -155,7 +202,8 @@ int main() {
                 cin >> student_id;
                 try {
                     Student student = system.searchStudent(student_id);
-                    cout << student << endl;
+                    cout << "✅ Found: ID " << student.getID() << ", Name: " << student.getName()
+                         << ", Attendance: " << student.getAttendance() << endl;
                 } catch (exception& e) {
                     cout << e.what() << endl;
                 }
@@ -175,7 +223,7 @@ int main() {
                 cout << "Exiting..." << endl;
                 break;
             default:
-                cout << "Invalid choice!" << endl;
+                cout << "Invalid choice! Try again." << endl;
         }
     } while (choice != 6);
 
